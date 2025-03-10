@@ -1,0 +1,6 @@
+pehle nft list hoga aur us time hum seller ko voucher denge
+fir jab buy krega koi toh fir uska signature check hoga fir transfer hoga nft from seller to buyer and eth transfer hoga from buyer to seller.
+
+contract mein line 52 pe minter nahi check krna check krna hai ownerof voucher ke andar jo tokenid hai aur tokenaddress hai woh recover(voucher) ke equal hona chahiye
+
+
