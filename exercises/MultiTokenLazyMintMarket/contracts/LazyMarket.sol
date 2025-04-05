@@ -6,7 +6,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-contract GaneMarket is Ownable, EIP712 {
+contract LazyMarket is Ownable, EIP712 {
     event NFTBought(
         address buyer,
         address seller,
@@ -35,7 +35,7 @@ contract GaneMarket is Ownable, EIP712 {
 
     function recover(BuyerVoucher calldata voucher) public view returns (address) {
         bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
-            keccak256("BuyerVoucher(address tokenAddress,uint256 tokenId,uint256 price,uint256 amount,uint256 redeemed,string uri,address seller)"),
+            keccak256("BuyerVoucher(address tokenAddress,uint256 tokenId,uint256 price,uint256 amount,string uri,address seller)"),
             voucher.tokenAddress,
             voucher.tokenId,
             voucher.price,
@@ -56,7 +56,6 @@ contract GaneMarket is Ownable, EIP712 {
         token.safeTransferFrom(voucher.seller, msg.sender, voucher.tokenId, voucher.amount, "");
 
         redeemed[voucher.signature] = 1;
-
         payable(voucher.seller).transfer(msg.value);
 
         emit NFTBought(msg.sender, voucher.seller, voucher.tokenAddress, voucher.tokenId, voucher.price, voucher.amount);
