@@ -125,10 +125,8 @@ describe("LazyMarket", function () {
 
     await token.connect(seller).setApprovalForAll(await market.getAddress(), true);
 
-    // First purchase
     await market.connect(buyer).buyLazyMint(fullVoucher, { value: price });
 
-    // Second attempt with the same voucher should fail
     await expect(
       market.connect(buyer).buyLazyMint(fullVoucher, { value: price })
     ).to.be.revertedWith("Voucher already redeemed");
