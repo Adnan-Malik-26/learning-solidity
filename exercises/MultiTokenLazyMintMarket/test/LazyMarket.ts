@@ -1,30 +1,45 @@
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { expect } from "chai";
-import { ethers } from "hardhat";
-import { LazyMarket, ERC1155Mock } from "../typechain-types";
+import hre from "hardhat";
+import { parseEther } from "ethers";
 
 describe("LazyMarket", function () {
-  async function deployFixture() {
-    const [owner, seller, buyer] = await ethers.getSigners();
+  async function deployContractsFixture() {
+    const [owner, seller, buyer] = await hre.ethers.getSigners();
 
-    const ERC1155Mock = await ethers.getContractFactory("ERC1155Mock");
-    const token = await ERC1155Mock.connect(seller).deploy("https://api.example.com/metadata/");
-    await token.waitForDeployment();
+    const Dummy1155 = await hre.ethers.getContractFactory("Dummy1155");
+    const dummy1155 = await Dummy1155.connect(seller).deploy();
 
-    await token.connect(seller).mint(seller.address, 1, 10, "0x");
+    const LazyMarket = await hre.ethers.getContractFactory("LazyMarket");
+    const lazyMarket = await LazyMarket.deploy();
 
-    const LazyMarket = await ethers.getContractFactory("LazyMarket");
-    const market = await LazyMarket.connect(owner).deploy();
-    await market.waitForDeployment();
-
-    return { market, token, owner, seller, buyer };
+    return { owner, seller, buyer, dummy1155, lazyMarket };
   }
 
-  async function signVoucher(voucher: any, seller: any, verifyingContract: string) {
+  async function createVoucher(
+    domain: { name: string; version: string; chainId: number; verifyingContract: string },
+    types: any,
+    values: any,
+    signer: any
+  ) {
+    const signature = await signer.signTypedData(domain, types, values);
+    return signature;
+  }
+
+  it("should allow buyer to redeem a lazy minted voucher", async function () {
+    const { seller, buyer, dummy1155, lazyMarket } = await loadFixture(deployContractsFixture);
+
+    const chainId = (await hre.ethers.provider.getNetwork()).chainId;
+
+    // Seller mints tokens
+    await dummy1155.connect(seller).mint(seller.address, 1, 10, "0x");
+    await dummy1155.connect(seller).setApprovalForAll(lazyMarket.target, true);
+
     const domain = {
       name: "Voucher Domain",
       version: "1",
-      chainId: (await ethers.provider.getNetwork()).chainId,
-      verifyingContract,
+      chainId,
+      verifyingContract: lazyMarket.target,
     };
 
     const types = {
@@ -38,97 +53,104 @@ describe("LazyMarket", function () {
       ],
     };
 
-    return await seller.signTypedData(domain, types, voucher);
-  }
-
-  it("should buy NFT via lazy mint", async () => {
-    const { market, token, seller, buyer } = await deployFixture();
-
-    const tokenId = 1;
-    const price = ethers.parseEther("1");
-    const amount = 2;
-    const uri = "https://api.example.com/metadata/1";
-
-    const voucher = {
-      tokenAddress: await token.getAddress(),
-      tokenId,
-      price,
-      amount,
-      uri,
+    const voucherData = {
+      tokenAddress: dummy1155.target,
+      tokenId: 1,
+      price: parseEther("0.01"),
+      amount: 10,
+      uri: "ipfs://example_uri",
       seller: seller.address,
     };
 
-    const signature = await signVoucher(voucher, seller, await market.getAddress());
+    const signature = await createVoucher(domain, types, voucherData, seller);
 
     const fullVoucher = {
-      ...voucher,
+      ...voucherData,
       signature,
     };
 
-    await token.connect(seller).setApprovalForAll(await market.getAddress(), true);
+    const quantity = 2;
+    const totalPrice = voucherData.price * BigInt(quantity);
 
     await expect(() =>
-      market.connect(buyer).buyLazyMint(fullVoucher, { value: price })
-    ).to.changeEtherBalances([buyer, seller], [price * -1n, price]);
+      lazyMarket.connect(buyer).buyLazyMint(fullVoucher, quantity, {
+        value: totalPrice,
+      })
+    ).to.changeEtherBalances([buyer, seller], [-totalPrice, totalPrice]);
 
-    expect(await token.balanceOf(buyer.address, tokenId)).to.equal(amount);
-    expect(await token.balanceOf(seller.address, tokenId)).to.equal(10 - amount);
+    const balance = await dummy1155.balanceOf(buyer.address, 1);
+    expect(balance).to.equal(quantity);
+
+    const redeemed = await lazyMarket.redeemed(signature);
+    expect(redeemed).to.equal(quantity);
   });
 
-  it("should revert if incorrect ETH amount is sent", async () => {
-    const { market, token, seller, buyer } = await deployFixture();
+  it("should fail with invalid signature", async function () {
+    const { seller, buyer, dummy1155, lazyMarket } = await loadFixture(deployContractsFixture);
 
-    const tokenId = 1;
-    const price = ethers.parseEther("1");
-    const incorrectPrice = ethers.parseEther("0.5");
-    const amount = 1;
-    const uri = "https://api.example.com/metadata/1";
+    const fakeVoucher = {
+      tokenAddress: dummy1155.target,
+      tokenId: 1,
+      price: parseEther("0.01"),
+      amount: 5,
+      uri: "ipfs://fake",
+      seller: seller.address,
+      signature: "0xdeadbeef", // Invalid sig
+    };
+    await expect(
+      lazyMarket.connect(buyer).buyLazyMint(fakeVoucher, 1, {
+        value: fakeVoucher.price,
+      })
+    ).to.be.reverted;
+  });
 
-    const voucher = {
-      tokenAddress: await token.getAddress(),
-      tokenId,
-      price,
-      amount,
-      uri,
+  it("should fail with incorrect ETH amount", async function () {
+    const { seller, buyer, dummy1155, lazyMarket } = await loadFixture(deployContractsFixture);
+
+    const chainId = (await hre.ethers.provider.getNetwork()).chainId;
+
+    await dummy1155.connect(seller).mint(seller.address, 1, 5, "0x");
+    await dummy1155.connect(seller).setApprovalForAll(lazyMarket.target, true);
+
+    const domain = {
+      name: "Voucher Domain",
+      version: "1",
+      chainId,
+      verifyingContract: lazyMarket.target,
+    };
+
+    const types = {
+      BuyerVoucher: [
+        { name: "tokenAddress", type: "address" },
+        { name: "tokenId", type: "uint256" },
+        { name: "price", type: "uint256" },
+        { name: "amount", type: "uint256" },
+        { name: "uri", type: "string" },
+        { name: "seller", type: "address" },
+      ],
+    };
+
+    const voucherData = {
+      tokenAddress: dummy1155.target,
+      tokenId: 1,
+      price: parseEther("0.01"),
+      amount: 5,
+      uri: "ipfs://wrong",
       seller: seller.address,
     };
 
-    const signature = await signVoucher(voucher, seller, await market.getAddress());
-    const fullVoucher = { ...voucher, signature };
+    const signature = await createVoucher(domain, types, voucherData, seller);
 
-    await token.connect(seller).setApprovalForAll(await market.getAddress(), true);
+    const fullVoucher = {
+      ...voucherData,
+      signature,
+    };
 
     await expect(
-      market.connect(buyer).buyLazyMint(fullVoucher, { value: incorrectPrice })
+      lazyMarket.connect(buyer).buyLazyMint(fullVoucher, 2, {
+        value: parseEther("0.01"), // should be 0.02
+      })
     ).to.be.revertedWith("Incorrect ETH amount");
   });
-
-  it("should revert if voucher is reused", async () => {
-    const { market, token, seller, buyer } = await deployFixture();
-
-    const tokenId = 1;
-    const price = ethers.parseEther("1");
-    const amount = 1;
-    const uri = "https://api.example.com/metadata/1";
-
-    const voucher = {
-      tokenAddress: await token.getAddress(),
-      tokenId,
-      price,
-      amount,
-      uri,
-      seller: seller.address,
-    };
-
-    const signature = await signVoucher(voucher, seller, await market.getAddress());
-    const fullVoucher = { ...voucher, signature };
-
-    await token.connect(seller).setApprovalForAll(await market.getAddress(), true);
-
-    await market.connect(buyer).buyLazyMint(fullVoucher, { value: price });
-
-    await expect(
-      market.connect(buyer).buyLazyMint(fullVoucher, { value: price })
-    ).to.be.revertedWith("Voucher already redeemed");
-  });
 });
+

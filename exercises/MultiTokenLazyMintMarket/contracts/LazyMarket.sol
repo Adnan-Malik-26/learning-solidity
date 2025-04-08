@@ -47,18 +47,18 @@ contract LazyMarket is Ownable, EIP712 {
         return ECDSA.recover(digest, voucher.signature);
     }
 
-    function buyLazyMint(BuyerVoucher calldata voucher) external payable {
-        require(msg.value == voucher.price, "Incorrect ETH amount");
+    function buyLazyMint(BuyerVoucher calldata voucher, uint256 quantityToRedeem) external payable {
+        require(msg.value == voucher.price * quantityToRedeem, "Incorrect ETH amount");
         require(recover(voucher) == voucher.seller, "Invalid signature");
-        require(redeemed[voucher.signature] == 0, "Voucher already redeemed");
+        require(redeemed[voucher.signature] + quantityToRedeem <= voucher.amount, "Exceeded redeemable amount");
 
         IERC1155 token = IERC1155(voucher.tokenAddress);
-        token.safeTransferFrom(voucher.seller, msg.sender, voucher.tokenId, voucher.amount, "");
+        token.safeTransferFrom(voucher.seller, msg.sender, voucher.tokenId, quantityToRedeem, "");
 
-        redeemed[voucher.signature] = 1;
+        redeemed[voucher.signature] += quantityToRedeem;
         payable(voucher.seller).transfer(msg.value);
 
-        emit NFTBought(msg.sender, voucher.seller, voucher.tokenAddress, voucher.tokenId, voucher.price, voucher.amount);
+        emit NFTBought(msg.sender, voucher.seller, voucher.tokenAddress, voucher.tokenId, voucher.price * quantityToRedeem, quantityToRedeem);
     }
 }
 
