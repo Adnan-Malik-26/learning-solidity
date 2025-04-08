@@ -31,7 +31,6 @@ describe("LazyMarket", function () {
 
     const chainId = (await hre.ethers.provider.getNetwork()).chainId;
 
-    // Seller mints tokens
     await dummy1155.connect(seller).mint(seller.address, 1, 10, "0x");
     await dummy1155.connect(seller).setApprovalForAll(lazyMarket.target, true);
 
@@ -93,9 +92,9 @@ describe("LazyMarket", function () {
       tokenId: 1,
       price: parseEther("0.01"),
       amount: 5,
-      uri: "ipfs://fake",
+      uri: "ipfs://example",
       seller: seller.address,
-      signature: "0xdeadbeef", // Invalid sig
+      signature: "0xdeadbeef",
     };
     await expect(
       lazyMarket.connect(buyer).buyLazyMint(fakeVoucher, 1, {
@@ -148,7 +147,7 @@ describe("LazyMarket", function () {
 
     await expect(
       lazyMarket.connect(buyer).buyLazyMint(fullVoucher, 2, {
-        value: parseEther("0.01"), // should be 0.02
+        value: parseEther("0.01"),
       })
     ).to.be.revertedWith("Incorrect ETH amount");
   });
