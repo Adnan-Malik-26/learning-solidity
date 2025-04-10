@@ -61,4 +61,3 @@ contract LazyMarket is Ownable, EIP712 {
         emit NFTBought(msg.sender, voucher.seller, voucher.tokenAddress, voucher.tokenId, voucher.price * quantityToRedeem, quantityToRedeem);
     }
 }
-
