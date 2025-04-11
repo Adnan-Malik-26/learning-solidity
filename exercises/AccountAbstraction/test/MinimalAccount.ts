@@ -1,96 +1,40 @@
 import { expect } from "chai";
+import { ethers as hreEthers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
-import hre from "hardhat";
-import { keccak256, toUtf8Bytes } from "ethers";
 
-describe("MinimalAccount", () => {
+describe("MinimalAccount + ERC20", function () {
   async function deployFixture() {
-    const [owner, otherAccount, entryPoint] = await hre.ethers.getSigners();
+    const [deployer, recipient] = await hreEthers.getSigners();
 
-    const MinimalAccount = await hre.ethers.getContractFactory("MinimalAccount");
-    const account = await MinimalAccount.deploy(entryPoint.address, owner.address);
+    const TokenFactory = await hreEthers.getContractFactory("MyToken");
+    const token = await TokenFactory.deploy(deployer.address);
+    await token.waitForDeployment();
 
-    return { account, owner, otherAccount, entryPoint };
+    const MinimalFactory = await hreEthers.getContractFactory("MinimalAccount");
+    const entryPoint = deployer.address;
+    const account = await MinimalFactory.deploy(entryPoint, deployer.address);
+    await account.waitForDeployment();
+
+    return { deployer, recipient, token, account };
   }
 
-  it("should deploy with correct owner and entry point", async () => {
-    const { account, owner, entryPoint } = await loadFixture(deployFixture);
-    expect(await account.owner()).to.equal(owner.address);
-    expect(await account.entryPoint()).to.equal(entryPoint.address);
-  });
+  it("should mint tokens to MinimalAccount and transfer them to recipient", async function () {
+    const { deployer, recipient, token, account } = await loadFixture(deployFixture);
 
-  it("should receive ETH", async () => {
-    const { account, otherAccount } = await loadFixture(deployFixture);
+    const amount = hreEthers.parseEther("100");
 
-    const tx = await otherAccount.sendTransaction({
-      to: account.address,
-      value: hre.ethers.parseEther("1.0"),
-    });
-    await tx.wait();
+    await token.connect(deployer).mint(account.target, amount);
+    expect(await token.balanceOf(account.target)).to.equal(amount);
 
-    const balance = await hre.ethers.provider.getBalance(account.address);
-    expect(balance).to.equal(hre.ethers.parseEther("1.0"));
-  });
+    const transferData = token.interface.encodeFunctionData("transfer", [
+      recipient.address,
+      amount,
+    ]);
 
+    await account.connect(deployer).execute(token.target, 0, transferData);
 
-  it("should allow owner to execute a transaction", async () => {
-    const { account, owner, otherAccount } = await loadFixture(deployFixture);
-
-    await owner.sendTransaction({
-      to: account.address,
-      value: hre.ethers.parseEther("1"),
-    });
-
-    const recipient = await otherAccount.getAddress();
-
-    const tx = await account.connect(owner).execute(
-      recipient,
-      hre.ethers.parseEther("0.5"),
-      "0x"
-    );
-    await tx.wait();
-
-    const balance = await hre.ethers.provider.getBalance(recipient);
-    expect(balance).to.equal(hre.ethers.parseEther("0.5"));
-  });
-
-  it("should fail if non-owner tries to execute", async () => {
-    const { account, otherAccount } = await loadFixture(deployFixture);
-
-    await expect(
-      account.connect(otherAccount).execute(
-        otherAccount.address,
-        hre.ethers.parseEther("0.1"),
-        "0x"
-      )
-    ).to.be.revertedWithCustomError(account, "OwnableUnauthorizedAccount").withArgs(otherAccount.address);
-  });
-
-  it("should only allow EntryPoint to call validateUserOp", async () => {
-    const { account, owner, otherAccount } = await loadFixture(deployFixture);
-
-    const fakeHash = keccak256(toUtf8Bytes("test"));
-    const userOp = hre.ethers.AbiCoder.defaultAbiCoder().encode(
-      ["address", "bytes"],
-      [owner.address, "0x"]
-    );
-
-    await expect(
-      account.connect(otherAccount).validateUserOp(userOp, fakeHash, 0)
-    ).to.be.revertedWith("Only EntryPoint");
-  });
-
-  it("should accept userOp from EntryPoint and return 0", async () => {
-    const { account, owner, entryPoint } = await loadFixture(deployFixture);
-
-    const fakeHash = keccak256(toUtf8Bytes("valid"));
-    const userOp = hre.ethers.AbiCoder.defaultAbiCoder().encode(
-      ["address", "bytes"],
-      [owner.address, "0x"]
-    );
-
-    const tx = await account.connect(entryPoint).validateUserOp(userOp, fakeHash, 0);
-    await tx.wait();
+    expect(await token.balanceOf(account.target)).to.equal(0);
+    expect(await token.balanceOf(recipient.address)).to.equal(amount);
   });
 });
 

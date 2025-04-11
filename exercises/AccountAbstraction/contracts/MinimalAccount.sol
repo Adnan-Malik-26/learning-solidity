@@ -30,11 +30,9 @@ contract MinimalAccount is Ownable {
     ) external returns (uint256) {
         require(msg.sender == address(entryPoint), "Only EntryPoint");
 
-        // Signature verification
         (address recovered,) = abi.decode(userOp, (address, bytes));
         require(recovered == owner(), "Invalid signature");
 
-        // Fund EntryPoint if needed
         if (missingAccountFunds > 0) {
             payable(msg.sender).transfer(missingAccountFunds);
         }
