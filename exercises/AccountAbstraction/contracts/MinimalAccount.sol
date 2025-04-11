@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 interface IEntryPoint {
     function validateUserOp(
@@ -13,8 +14,6 @@ interface IEntryPoint {
 }
 
 contract MinimalAccount is Ownable {
-    using ECDSA for bytes32;
-
     IEntryPoint public entryPoint;
 
     constructor(address _entryPoint, address initialOwner) Ownable(initialOwner) {
@@ -23,6 +22,14 @@ contract MinimalAccount is Ownable {
 
     receive() external payable {}
 
+    struct UserOperation {
+        address sender;
+        address to;
+        uint256 value;
+        bytes data;
+        bytes signature;
+    }
+
     function validateUserOp(
         bytes calldata userOp,
         bytes32 userOpHash,
@@ -30,11 +37,20 @@ contract MinimalAccount is Ownable {
     ) external returns (uint256) {
         require(msg.sender == address(entryPoint), "Only EntryPoint");
 
-        (address recovered,) = abi.decode(userOp, (address, bytes));
+        // Decode the user operation
+        UserOperation memory op = abi.decode(userOp, (UserOperation));
+
+        // Create the Ethereum signed message hash
+        bytes32 ethSignedHash = MessageHashUtils.toEthSignedMessageHash(userOpHash);
+
+        // Recover signer from the signature
+        address recovered = ECDSA.recover(ethSignedHash, op.signature);
         require(recovered == owner(), "Invalid signature");
 
+        // Fund EntryPoint if needed
         if (missingAccountFunds > 0) {
-            payable(msg.sender).transfer(missingAccountFunds);
+            (bool sent, ) = msg.sender.call{value: missingAccountFunds}("");
+            require(sent, "Funding EntryPoint failed");
         }
 
         return 0;
