@@ -1,16 +1,15 @@
 import { expect } from "chai";
-import { ethers as hreEthers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 
 describe("MinimalAccount + ERC20", function () {
   async function deployFixture() {
-    const [deployer, recipient] = await hreEthers.getSigners();
+    const [deployer, recipient] = await ethers.getSigners();
 
-    const TokenFactory = await hreEthers.getContractFactory("MyToken");
+    const TokenFactory = await ethers.getContractFactory("MyToken");
     const token = await TokenFactory.deploy(deployer.address);
     await token.waitForDeployment();
 
-    const MinimalFactory = await hreEthers.getContractFactory("MinimalAccount");
+    const MinimalFactory = await ethers.getContractFactory("MinimalAccount");
     const entryPoint = deployer.address;
     const account = await MinimalFactory.deploy(entryPoint, deployer.address);
     await account.waitForDeployment();
@@ -21,7 +20,7 @@ describe("MinimalAccount + ERC20", function () {
   it("should mint tokens to MinimalAccount and transfer them to recipient", async function () {
     const { deployer, recipient, token, account } = await loadFixture(deployFixture);
 
-    const amount = hreEthers.parseEther("100");
+    const amount = ethers.parseEther("100");
 
     await token.connect(deployer).mint(account.target, amount);
     expect(await token.balanceOf(account.target)).to.equal(amount);
