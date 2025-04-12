@@ -14,26 +14,37 @@ describe("MinimalAccount + ERC20 via UserOp", function () {
     const account = await MinimalFactory.deploy(entryPointSigner.address, deployer.address);
     await account.waitForDeployment();
 
-    await deployer.sendTransaction({ to: account.target, value: hreEthers.parseEther("1") });
+    await deployer.sendTransaction({
+      to: await account.getAddress(),
+      value: hreEthers.parseEther("1"),
+    });
 
     return { deployer, recipient, entryPointSigner, token, account };
   }
 
   it("should transfer tokens using validateUserOp", async function () {
-    const { deployer, recipient, entryPointSigner, token, account } = await loadFixture(deployFixture);
+    const { deployer, recipient, entryPointSigner, token, account } =
+      await loadFixture(deployFixture);
+
     const amount = hreEthers.parseEther("100");
 
-    await token.connect(deployer).mint(account.target, amount);
-    expect(await token.balanceOf(account.target)).to.equal(amount);
+    const accountAddress = await account.getAddress();
+    const tokenAddress = await token.getAddress();
 
-    const transferCalldata = token.interface.encodeFunctionData("transfer", [recipient.address, amount]);
+    await token.connect(deployer).mint(accountAddress, amount);
+    expect(await token.balanceOf(accountAddress)).to.equal(amount);
+
+    const transferCalldata = token.interface.encodeFunctionData("transfer", [
+      recipient.address,
+      amount,
+    ]);
 
     const userOp = {
-      sender: account.target,
-      to: token.target,
+      sender: accountAddress,
+      to: tokenAddress,
       value: 0,
       data: transferCalldata,
-      signature: "0x"
+      signature: "0x",
     };
 
     const encodedOp = hreEthers.AbiCoder.defaultAbiCoder().encode(
@@ -47,15 +58,19 @@ describe("MinimalAccount + ERC20 via UserOp", function () {
     userOp.signature = signature;
 
     const userOpEncoded = hreEthers.AbiCoder.defaultAbiCoder().encode(
-      ["tuple(address sender, address to, uint256 value, bytes data, bytes signature)"],
+      [
+        "tuple(address sender, address to, uint256 value, bytes data, bytes signature)",
+      ],
       [userOp]
     );
 
-    await account.connect(entryPointSigner).validateUserOp(userOpEncoded, userOpHash, 0);
+    await account
+      .connect(entryPointSigner)
+      .validateUserOp(userOpEncoded, userOpHash, 0);
 
     await account.connect(deployer).execute(userOp.to, userOp.value, userOp.data);
 
-    expect(await token.balanceOf(account.target)).to.equal(0);
+    expect(await token.balanceOf(accountAddress)).to.equal(0);
     expect(await token.balanceOf(recipient.address)).to.equal(amount);
   });
 });
