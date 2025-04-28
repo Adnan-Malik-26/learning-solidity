@@ -1,45 +1,36 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
-import { IEntryPoint } from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
-import { BaseAccount } from "@account-abstraction/contracts/core/BaseAccount.sol";
-import { PackedUserOperation } from "@account-abstraction/contracts/interfaces/PackedUserOperation.sol";
-
-contract PasskeySmartAccount is BaseAccount {
-    IEntryPoint private immutable _entryPoint;
+contract PasskeySmartAccount {
     address public owner;
 
-    constructor(IEntryPoint anEntryPoint) {
-        _entryPoint = anEntryPoint;
-        owner = msg.sender;
+    event Executed(address target, uint256 value, bytes data);
+    event OwnerChanged(address oldOwner, address newOwner);
+
+    constructor(address _owner) {
+        require(_owner != address(0), "Owner cannot be zero address");
+        owner = _owner;
     }
 
-    function entryPoint() public view override returns (IEntryPoint) {
-        return _entryPoint;
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not authorized");
+        _;
     }
 
-    function validateUserOp(
-        PackedUserOperation calldata userOp,
-        bytes32 userOpHash,
-        uint256 missingAccountFunds
-    ) public view override returns (uint256 validationData) {
-        if (owner == address(0)) {
-            return 1; // invalid
-        }
-        return 0; // valid
+    /// @notice Execute a transaction from the smart account
+    function execute(address target, uint256 value, bytes calldata data) external onlyOwner {
+        (bool success, ) = target.call{value: value}(data);
+        require(success, "Transaction failed");
+        emit Executed(target, value, data);
     }
 
-    function _validateSignature(
-        PackedUserOperation calldata userOp,
-        bytes32 userOpHash
-    ) internal view override returns (uint256 validationData) {
-        // Dummy validation logic: always succeed
-        return 0;
+    /// @notice Change Passkey owner (e.g., if user rotates keys)
+    function changeOwner(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "New owner cannot be zero address");
+        emit OwnerChanged(owner, newOwner);
+        owner = newOwner;
     }
 
-    function supportsInterface(bytes4 interfaceId) public pure returns (bool) {
-        return interfaceId == type(BaseAccount).interfaceId;
-    }
+    receive() external payable {}
 }
-
 
