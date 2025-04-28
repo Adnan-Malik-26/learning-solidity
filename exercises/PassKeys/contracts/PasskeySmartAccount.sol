@@ -17,14 +17,12 @@ contract PasskeySmartAccount {
         _;
     }
 
-    /// @notice Execute a transaction from the smart account
     function execute(address target, uint256 value, bytes calldata data) external onlyOwner {
         (bool success, ) = target.call{value: value}(data);
         require(success, "Transaction failed");
         emit Executed(target, value, data);
     }
 
-    /// @notice Change Passkey owner (e.g., if user rotates keys)
     function changeOwner(address newOwner) external onlyOwner {
         require(newOwner != address(0), "New owner cannot be zero address");
         emit OwnerChanged(owner, newOwner);
