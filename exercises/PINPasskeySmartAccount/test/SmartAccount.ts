@@ -22,13 +22,17 @@ describe("SmartAccount", function () {
   it("Should execute transaction with correct PIN", async function () {
     const { smartAccountInstance, deployer, otherAccount } = await loadFixture(deploySmartAccountFixture);
 
+
     const tx = await smartAccountInstance.connect(deployer).executeTransaction(
       await deployer.getAddress(),
       0,
       "0x",
       1234
     );
-    await tx.wait();
+
+    await expect(tx)
+      .to.emit(smartAccountInstance, "TransactionExecuted")
+      .withArgs(deployer.address, 0, "0x");
   });
 
   it("Should fail transaction with wrong PIN", async function () {
